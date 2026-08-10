@@ -39,9 +39,9 @@ func TestRuleConfigSHA256(t *testing.T) {
 		DefaultRule: "default",
 		PathRules:   []rules.PathRule{{Pattern: "*.go", Rule: "go rule"}},
 	}
-	a := New(Args{SystemRule: base})
-
-	if a.ruleConfigSHA256() != a.ruleConfigSHA256() {
+	a1 := New(Args{SystemRule: base})
+	a2 := New(Args{SystemRule: base})
+	if a1.ruleConfigSHA256() != a2.ruleConfigSHA256() {
 		t.Fatal("ruleConfigSHA256 is not deterministic")
 	}
 
@@ -50,7 +50,7 @@ func TestRuleConfigSHA256(t *testing.T) {
 		DefaultRule: "different",
 		PathRules:   base.PathRules,
 	}})
-	if a.ruleConfigSHA256() == changed.ruleConfigSHA256() {
+	if a1.ruleConfigSHA256() == changed.ruleConfigSHA256() {
 		t.Error("changing the default rule did not change rule_config_sha256")
 	}
 
@@ -72,7 +72,7 @@ func TestRuleConfigSHA256(t *testing.T) {
 		SystemRule: base,
 		FileFilter: &rules.FileFilter{Include: []string{"*.go"}, Exclude: []string{"vendor/**"}},
 	})
-	if a.ruleConfigSHA256() == withFilter.ruleConfigSHA256() {
+	if a1.ruleConfigSHA256() == withFilter.ruleConfigSHA256() {
 		t.Error("adding a file filter did not change rule_config_sha256")
 	}
 }
@@ -98,10 +98,12 @@ func TestSourceArtifactSHA256_DedupsByItemID(t *testing.T) {
 	single := New(Args{})
 	single.diffs = []model.Diff{d1}
 
-	got := dup.sourceArtifactSHA256()
-	if got != dup.sourceArtifactSHA256() {
+	dup2 := New(Args{})
+	dup2.diffs = []model.Diff{d1, d2}
+	if dup.sourceArtifactSHA256() != dup2.sourceArtifactSHA256() {
 		t.Fatal("sourceArtifactSHA256 is not deterministic")
 	}
+	got := dup.sourceArtifactSHA256()
 	if got != single.sourceArtifactSHA256() {
 		t.Errorf("duplicate item_id was not deduplicated: digest %q != single-item digest %q",
 			got, single.sourceArtifactSHA256())
@@ -123,8 +125,9 @@ func TestRuntimeConfigSHA256(t *testing.T) {
 			Timeout:      30 * time.Second,
 		},
 	}
-	a := New(baseArgs)
-	if a.runtimeConfigSHA256() != a.runtimeConfigSHA256() {
+	a1 := New(baseArgs)
+	a2 := New(baseArgs)
+	if a1.runtimeConfigSHA256() != a2.runtimeConfigSHA256() {
 		t.Fatal("runtimeConfigSHA256 is not deterministic")
 	}
 
@@ -147,7 +150,7 @@ func TestRuntimeConfigSHA256(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mutated := baseArgs // RuntimeConfig has no pointers/slices: a value copy is a full copy.
 			tc.mutate(&mutated)
-			if New(mutated).runtimeConfigSHA256() == a.runtimeConfigSHA256() {
+			if New(mutated).runtimeConfigSHA256() == a1.runtimeConfigSHA256() {
 				t.Errorf("changing %s did not change runtime_config_sha256", tc.name)
 			}
 		})
