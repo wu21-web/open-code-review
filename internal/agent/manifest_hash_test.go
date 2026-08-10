@@ -41,6 +41,10 @@ func TestRuleConfigSHA256(t *testing.T) {
 	}
 	a := New(Args{SystemRule: base})
 
+	if a.ruleConfigSHA256() != a.ruleConfigSHA256() {
+		t.Fatal("ruleConfigSHA256 is not deterministic")
+	}
+
 	// A changed default rule changes the digest.
 	changed := New(Args{SystemRule: &rules.SystemRule{
 		DefaultRule: "different",
@@ -120,6 +124,9 @@ func TestRuntimeConfigSHA256(t *testing.T) {
 		},
 	}
 	a := New(baseArgs)
+	if a.runtimeConfigSHA256() != a.runtimeConfigSHA256() {
+		t.Fatal("runtimeConfigSHA256 is not deterministic")
+	}
 
 	// Every allowlisted field must participate in the digest.
 	cases := []struct {
