@@ -242,3 +242,99 @@ jobs:
           fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+    
+  macports-publish:
+    needs: release
+    runs-on: self-hosted
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.MACPORTS_TOKEN }}
+          repository: ${{ secrets.MACPORTS_ACTOR }}/macports-ports
+          ref: "master"
+          fetch-depth: "3"
+          set-safe-directory: "true"
+      
+      - name: Install wget
+        run: |
+          apt-get update && apt-get install -y wget
+          which wget
+      
+      - name: Checkout new branch
+        run: |
+          git branch -D ocr 2>/dev/null || true
+          git push origin --delete ocr 2>/dev/null || true
+          git checkout -b ocr
+
+      - name: Copy template
+        run: |
+          rm ./llm/open-code-review/Portfile
+          wget "https://raw.githubusercontent.com/alibaba/refs/heads/main/.macports/Portfile" -O ./llm/open-code-review/Portfile
+          wget "https://raw.githubusercontent.com/alibaba/refs/heads/main/.macports/pull_request_template.md" -O /tmp/pull_request_template.md
+
+      - name: Export values to ENV
+        run: |
+          MACPORTS_VERSION="${GITHUB_REF_NAME#v}"
+
+          GO_VERSION=$(wget -qO- "https://raw.githubusercontent.com/alibaba/open-code-review/v${MACPORTS_VERSION}/go.mod" \
+            | grep -E '^go ' | awk '{print $2}')
+
+          LATEST_COMMIT=$(git ls-remote "https://github.com/alibaba/open-code-review.git" \
+            "refs/tags/v${MACPORTS_VERSION}^{}" | cut -c1-7)
+
+          TARBALL="/tmp/open-code-review-${MACPORTS_VERSION}.tar.gz"
+          wget -q "https://codeload.github.com/alibaba/open-code-review/tar.gz/refs/tags/v${MACPORTS_VERSION}" -O "${TARBALL}"
+          SHA256_SUM=$(sha256sum "${TARBALL}" | awk '{print $1}')
+          # OpenSSL 3.x: RIPEMD-160 lives in the legacy provider
+          RMD160_SUM=$(openssl dgst -provider default -provider legacy -rmd160 "${TARBALL}" | awk '{print $NF}')
+          SIZE_VALUE=$(wc -c < "${TARBALL}" | tr -d ' ')
+
+          {
+            echo "MACPORTS_VERSION=${MACPORTS_VERSION}"
+            echo "GO_VERSION=${GO_VERSION}"
+            echo "LATEST_COMMIT=${LATEST_COMMIT}"
+            echo "SHA256_SUM=${SHA256_SUM}"
+            echo "RMD160_SUM=${RMD160_SUM}"
+            echo "SIZE_VALUE=${SIZE_VALUE}"
+          } >> "$GITHUB_ENV"
+          
+      - name: Write template
+        run: |
+          sed -i \
+            -e "s/MACPORTS_VERSION/${MACPORTS_VERSION}/g" \
+            -e "s/GO_VERSION/${GO_VERSION}/g" \
+            -e "s/LATEST_COMMIT/${LATEST_COMMIT}/g" \
+            -e "s/SHA256_VALUE/${SHA256_SUM}/g" \
+            -e "s/RMD160_VALUE/${RMD160_SUM}/g" \
+            -e "s/SIZE_VALUE/${SIZE_VALUE}/g" \
+            ./llm/open-code-review/Portfile
+
+          sed -i "s/MACPORTS_VERSION/${MACPORTS_VERSION}/g" /tmp/pull_request_template.md
+      
+      - name: Commit & Push
+        env:
+          GH_TOKEN: ${{ secrets.MACPORTS_TOKEN }}
+          MACPORTS_ACTOR: ${{ secrets.MACPORTS_ACTOR }}
+          MACPORTS_ACTOR_EMAIL: ${{ secrets.MACPORTS_ACTOR_EMAIL }}
+        run: |
+          git config user.name "${MACPORTS_ACTOR}"
+          git config user.email "${MACPORTS_ACTOR_EMAIL}"
+          git add llm/open-code-review/Portfile
+          git commit -m "open-code-review: update to ${MACPORTS_VERSION}" || echo "Nothing to commit"
+          git push origin ocr
+      
+      - name: Open PR
+        env:
+          GH_TOKEN: ${{ secrets.MACPORTS_TOKEN }}
+          MACPORTS_ACTOR: ${{ secrets.MACPORTS_ACTOR }}
+        run: |
+          gh repo set-default ${MACPORTS_ACTOR}/macports-ports
+          gh pr create \
+            --repo macports/macports-ports \
+            --base master \
+            --head "${MACPORTS_ACTOR}:ocr" \
+            --title "open-code-review: update to ${MACPORTS_VERSION}" \
+            --body-file /tmp/pull_request_template.md
