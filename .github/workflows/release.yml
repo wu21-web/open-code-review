@@ -246,6 +246,8 @@ jobs:
   macports-publish:
     needs: release
     runs-on: self-hosted
+    container:
+      image: ubuntu:24.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -260,8 +262,9 @@ jobs:
       
       - name: Install wget
         run: |
-          apt-get update && apt-get install -y wget
-          which wget
+          which wget || (apt-get update && apt-get install -y wget)
+          which gh || (apt-get update && apt-get install -y gh)
+  
       
       - name: Checkout new branch
         run: |
@@ -272,8 +275,8 @@ jobs:
       - name: Copy template
         run: |
           rm ./llm/open-code-review/Portfile
-          wget "https://raw.githubusercontent.com/alibaba/refs/heads/main/.macports/Portfile" -O ./llm/open-code-review/Portfile
-          wget "https://raw.githubusercontent.com/alibaba/refs/heads/main/.macports/pull_request_template.md" -O /tmp/pull_request_template.md
+          wget "https://raw.githubusercontent.com/alibaba/open-code-review/refs/heads/main/.macports/Portfile" -O ./llm/open-code-review/Portfile
+          wget "https://raw.githubusercontent.com/alibaba/open-code-review/refs/heads/main/.macports/pull_request_template.md" -O /tmp/pull_request_template.md
 
       - name: Export values to ENV
         run: |
@@ -286,10 +289,9 @@ jobs:
             "refs/tags/v${MACPORTS_VERSION}^{}" | cut -c1-7)
 
           TARBALL="/tmp/open-code-review-${MACPORTS_VERSION}.tar.gz"
-          wget -q "https://codeload.github.com/alibaba/open-code-review/tar.gz/refs/tags/v${MACPORTS_VERSION}" -O "${TARBALL}"
-          SHA256_SUM=$(sha256sum "${TARBALL}" | awk '{print $1}')
-          # OpenSSL 3.x: RIPEMD-160 lives in the legacy provider
-          RMD160_SUM=$(openssl dgst -provider default -provider legacy -rmd160 "${TARBALL}" | awk '{print $NF}')
+          wget -q "https://github.com/alibaba/open-code-review/archive/refs/tags/v${MACPORTS_VERSION}.tar.gz" -O "${TARBALL}"
+          SHA256_SUM=$(openssl dgst -sha256 "${TARBALL}" | awk '{print $NF}')
+          RMD160_SUM=$(openssl dgst -rmd160 "${TARBALL}" | awk '{print $NF}')
           SIZE_VALUE=$(wc -c < "${TARBALL}" | tr -d ' ')
 
           {
@@ -331,10 +333,10 @@ jobs:
           GH_TOKEN: ${{ secrets.MACPORTS_TOKEN }}
           MACPORTS_ACTOR: ${{ secrets.MACPORTS_ACTOR }}
         run: |
-          gh repo set-default ${MACPORTS_ACTOR}/macports-ports
+          gh repo set-default "${MACPORTS_ACTOR}/macports-ports" >/dev/null 2>&1
           gh pr create \
             --repo macports/macports-ports \
             --base master \
             --head "${MACPORTS_ACTOR}:ocr" \
             --title "open-code-review: update to ${MACPORTS_VERSION}" \
-            --body-file /tmp/pull_request_template.md
+            --body-file /tmp/pull_request_template.md >/dev/null 2>&1
